@@ -1,69 +1,75 @@
 name: Sync upstream
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+schedule:
+- cron: "0 3 * * *"
+workflow_dispatch:
+push:
+branches:
+- main
 
 permissions:
-  contents: write
+contents: write
 
 jobs:
-  sync:
-    runs-on: ubuntu-latest
+sync:
+runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+```
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  - name: Configure git
+    run: |
+      git config user.name "github-actions[bot]"
+      git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Sync main from upstream
-        run: |
-          git remote add upstream https://github.com/shuaiplus/NodeWarden.git || true
-          git fetch upstream
+  - name: Sync main from upstream
+    run: |
+      git remote add upstream https://github.com/shuaiplus/NodeWarden.git || true
+      git fetch upstream
 
-          git checkout main
-          git reset --hard upstream/main
-          git push origin main --force
+      git checkout main
+      git reset --hard upstream/main
 
-      - name: Rebuild kv from main
-        run: |
-          git fetch origin main kv || true
-          git checkout -B kv origin/main
+      # 防止 upstream 覆盖本仓库 workflow
+      git restore --source=HEAD --staged --worktree .github/workflows || true
 
-          python - <<'PY'
-          import re
-          from pathlib import Path
+      git push origin main --force
 
-          path = Path("wrangler.toml")
-          text = path.read_text(encoding="utf-8")
+  - name: Rebuild kv from main
+    run: |
+      git fetch origin main kv || true
+      git checkout -B kv origin/main
 
-          pattern = (
-              r"\[\[r2_buckets\]\]\s*"
-              r'binding\s*=\s*"ATTACHMENTS"\s*'
-              r'bucket_name\s*=\s*"nodewarden-attachments"\s*'
-          )
-          replacement = (
-              '[[kv_namespaces]]\n'
-              'binding = "ATTACHMENTS_KV"\n'
-              'id = "REPLACE_WITH_KV_NAMESPACE_ID"\n'
-          )
+      python - <<'PY'
+      import re
+      from pathlib import Path
 
-          new_text, count = re.subn(pattern, replacement, text, count=1)
-          if count == 0:
-              raise SystemExit("Expected R2 block not found in wrangler.toml")
+      path = Path("wrangler.toml")
+      text = path.read_text(encoding="utf-8")
 
-          path.write_text(new_text, encoding="utf-8")
-          PY
+      pattern = (
+          r"\[\[r2_buckets\]\]\s*"
+          r'binding\s*=\s*"ATTACHMENTS"\s*'
+          r'bucket_name\s*=\s*"nodewarden-attachments"\s*'
+      )
+      replacement = (
+          '[[kv_namespaces]]\n'
+          'binding = "ATTACHMENTS_KV"\n'
+          'id = "REPLACE_WITH_KV_NAMESPACE_ID"\n'
+      )
 
-          git add wrangler.toml
-          git commit -m "chore(kv): sync from main" || echo "No changes"
-          git push origin kv --force
+      new_text, count = re.subn(pattern, replacement, text, count=1)
+      if count == 0:
+          raise SystemExit("Expected R2 block not found in wrangler.toml")
+
+      path.write_text(new_text, encoding="utf-8")
+      PY
+
+      git add wrangler.toml
+      git commit -m "chore(kv): sync from main" || echo "No changes"
+      git push origin kv --force
+```
